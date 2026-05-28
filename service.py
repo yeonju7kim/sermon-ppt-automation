@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from extractor import Reference, extract_from_file, extract_from_text
 from fetcher import default_fetcher
@@ -54,8 +54,24 @@ def resolve_main_ref(main_passage: str | None, refs: list[Reference]) -> Referen
     return parsed[0]
 
 
-def build_ppt(
+def extract_refs(
     manuscript_path: str | Path,
+    log: Callable[[str], None] = print,
+) -> list[Reference]:
+    """원고 파일에서 성구 인용 추출."""
+    manuscript_path = Path(manuscript_path)
+    if not manuscript_path.exists():
+        raise FileNotFoundError(f"원고 파일을 찾을 수 없음: {manuscript_path}")
+    log(f"[추출] 원고: {manuscript_path.name}")
+    refs = extract_from_file(manuscript_path)
+    log(f"[추출] {len(refs)}개 인용")
+    for r in refs:
+        log(f"  - {r.header_en}  |  {r.header_ko}")
+    return refs
+
+
+def fetch_and_build(
+    refs: list[Reference],
     output_path: str | Path,
     template_path: str | Path | None = None,
     title_en: str | None = None,
@@ -65,24 +81,15 @@ def build_ppt(
     log: Callable[[str], None] = print,
     progress: Callable[[int, int], None] | None = None,
 ) -> PipelineResult:
-    """원고에서 인용 추출 → NIV+개역개정 조회 → PPT 생성. 전체 파이프라인."""
-    manuscript_path = Path(manuscript_path)
+    """주어진 refs로 NIV+개역개정 조회 후 PPT 생성. (검토 단계 이후 호출용)"""
     output_path = Path(output_path)
     template_path = Path(template_path) if template_path else default_template_path()
     cache_path = Path(cache_path) if cache_path else default_cache_path()
 
-    if not manuscript_path.exists():
-        raise FileNotFoundError(f"원고 파일을 찾을 수 없음: {manuscript_path}")
+    if not refs:
+        raise RuntimeError("성구 인용이 비어 있습니다.")
     if not template_path.exists():
         raise FileNotFoundError(f"템플릿 PPT를 찾을 수 없음: {template_path}")
-
-    log(f"[추출] 원고: {manuscript_path.name}")
-    refs = extract_from_file(manuscript_path)
-    if not refs:
-        raise RuntimeError("원고에서 성구 인용을 찾지 못했습니다.")
-    log(f"[추출] {len(refs)}개 인용:")
-    for r in refs:
-        log(f"  - {r.header_en}  |  {r.header_ko}")
 
     has_title = bool((title_en or "").strip() or (title_ko or "").strip())
     main_ref = resolve_main_ref(main_passage, refs) if has_title else None
@@ -116,3 +123,31 @@ def build_ppt(
     )
     log(f"[완료] {output_path}")
     return PipelineResult(refs=refs, main_ref=main_ref, output_path=output_path)
+
+
+def build_ppt(
+    manuscript_path: str | Path,
+    output_path: str | Path,
+    template_path: str | Path | None = None,
+    title_en: str | None = None,
+    title_ko: str | None = None,
+    main_passage: str | None = None,
+    cache_path: str | Path | None = None,
+    log: Callable[[str], None] = print,
+    progress: Callable[[int, int], None] | None = None,
+) -> PipelineResult:
+    """CLI용 편의함수: 추출 + fetch + 빌드 한번에. (검토 단계 없음)"""
+    refs = extract_refs(manuscript_path, log=log)
+    if not refs:
+        raise RuntimeError("원고에서 성구 인용을 찾지 못했습니다.")
+    return fetch_and_build(
+        refs=refs,
+        output_path=output_path,
+        template_path=template_path,
+        title_en=title_en,
+        title_ko=title_ko,
+        main_passage=main_passage,
+        cache_path=cache_path,
+        log=log,
+        progress=progress,
+    )

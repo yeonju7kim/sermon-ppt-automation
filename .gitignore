@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.egg-info/
+
+# SQLite cache (contains copyrighted Bible verse text — never commit)
+*.db
+
+# Personal sermon manuscripts / generated decks (do not commit others' material)
+fpn_*.docx
+fpn_*.pptx
+result*.pptx
+result*.txt
+*_sermon.txt
+sample_sermon.txt
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated outputs (user-specific)
+*.pptx
+!sermon_template.pptx

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+__version__ = "1.0.0"
+
 from extractor import Reference, extract_from_file, extract_from_text
 from fetcher import default_fetcher
 from ppt_builder import PassageVerses, build_presentation

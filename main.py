@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import argparse
 
-from service import build_ppt, default_template_path, default_cache_path
+from service import build_ppt, default_template_path, default_cache_path, __version__
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="설교 PPT 자동 생성")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("--manuscript", "-m", required=True, help="설교 원고 (.txt / .docx)")
     p.add_argument("--template", "-t", default=None,
                    help=f"템플릿 PPT (기본: {default_template_path()})")

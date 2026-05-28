@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-from service import build_ppt
+from service import build_ppt, __version__
 
 
 class Worker(QThread):
@@ -49,7 +49,7 @@ class Worker(QThread):
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("설교 PPT 생성기")
+        self.setWindowTitle(f"설교 PPT 생성기 v{__version__}")
         self.resize(720, 620)
         self.worker: Worker | None = None
         self._build_ui()

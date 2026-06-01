@@ -174,11 +174,13 @@ class BsKoreaFetcher:
 
     @staticmethod
     def _parse(html: str, ref: Reference) -> list[Verse]:
-        # 본문 영역만 잘라낸다 (id="tdBible1" 내부)
-        m = re.search(r'<div id="tdBible1"[^>]*>(.*?)</div>\s*<div', html, re.DOTALL)
-        inner = m.group(1) if m else html
-
-        soup = BeautifulSoup(inner, "html.parser")
+        # BeautifulSoup 으로 #tdBible1 컨테이너를 직접 잡는다.
+        # 정규식으로 tdBible1 본문을 잘라내면 안쪽에 중첩된 각주 <div> 의 첫 </div> 에서
+        # 본문이 잘려 17절 이후가 사라지는 사고가 난다 (예: 고전 1:17).
+        soup = BeautifulSoup(html, "html.parser")
+        container = soup.select_one("#tdBible1")
+        if container is None:
+            raise RuntimeError(f"대한성서공회 본문 컨테이너(#tdBible1) 없음 ({ref.header_ko})")
 
         # 본문이 아닌 보조 요소만 제거.
         # - div.D2: 각주 팝업
@@ -186,7 +188,7 @@ class BsKoreaFetcher:
         # - [id^="voice"]: 음성 듣기 버튼
         # - .chapNum / .smallTitle: 챕터 번호·소제목
         # 주의: .name, .area, .orgin 같은 본문 강조용 inline 태그는 텍스트가 본문이므로 절대 제거 금지
-        for tag in soup.select(
+        for tag in container.select(
             "div.D2, a.comment, [id^='voice'], "
             ".chapNum, .smallTitle"
         ):
@@ -194,7 +196,7 @@ class BsKoreaFetcher:
 
         # 각 절은 <span><span class="number">N</span>...본문...</span><br/> 형태
         verses: dict[int, str] = {}
-        for outer in soup.find_all("span", recursive=True):
+        for outer in container.find_all("span", recursive=True):
             num_tag = outer.find("span", class_="number", recursive=False)
             if num_tag is None:
                 continue

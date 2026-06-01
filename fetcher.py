@@ -124,19 +124,29 @@ class BibleGatewayFetcher:
                 tag.decompose()
 
         # 구절은 .text와 versenum 으로 식별 — Bible Gateway는
-        # <span class="text [book]-[chap]-[verse]">…</span> 구조 사용
+        # <span class="text [book]-[chap]-[verse]">…</span> 구조 사용.
+        # 일부 번역본(KLB 등)은 절을 묶어 표시: "Gen-1-6-Gen-1-7" 같이.
         verses: dict[int, str] = {}
+        single_pat = re.compile(r"^[\w]+-(\d+)-(\d+)$")
+        combined_pat = re.compile(r"^[\w]+-(\d+)-(\d+)-[\w]+-\d+-(\d+)$")
         for span in container.select("span.text"):
             classes = span.get("class", [])
-            verse_num = None
+            verse_nums: list[int] = []
             for c in classes:
-                m = re.match(r"^[\w]+-(\d+)-(\d+)$", c)
-                if m and int(m.group(1)) == ref.chapter:
-                    verse_num = int(m.group(2))
+                mc = combined_pat.match(c)
+                if mc and int(mc.group(1)) == ref.chapter:
+                    vs = int(mc.group(2))
+                    ve = int(mc.group(3))
+                    verse_nums = list(range(vs, ve + 1))
                     break
-            if verse_num is None:
+                ms = single_pat.match(c)
+                if ms and int(ms.group(1)) == ref.chapter:
+                    verse_nums = [int(ms.group(2))]
+                    break
+            if not verse_nums:
                 continue
-            if not (ref.verse_start <= verse_num <= ref.verse_end):
+            in_range = [n for n in verse_nums if ref.verse_start <= n <= ref.verse_end]
+            if not in_range:
                 continue
 
             # 절번호 sup 제거
@@ -146,8 +156,10 @@ class BibleGatewayFetcher:
             text = re.sub(r"\s+", " ", text).strip()
             if not text:
                 continue
-            # 같은 절 여러 span은 이어붙임
-            verses[verse_num] = (verses.get(verse_num, "") + " " + text).strip()
+            # 단일 절: 같은 절의 여러 span은 이어붙임
+            # 결합 절: 묶인 모든 절에 동일 본문 저장 (한 문장이 두 절을 덮음)
+            for n in in_range:
+                verses[n] = (verses.get(n, "") + " " + text).strip()
 
         result = [Verse(n, verses[n]) for n in sorted(verses.keys())]
         missing = [n for n in ref.verse_numbers() if n not in verses]

@@ -7,10 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from extractor import Reference, extract_from_file, extract_from_text
-from fetcher import default_fetcher
+from fetcher import (
+    ENGLISH_TRANSLATIONS,
+    KOREAN_TRANSLATIONS,
+    TRANSLATION_LABELS,
+    default_fetcher,
+)
 from ppt_builder import PassageVerses, build_presentation
 
 
@@ -80,8 +85,10 @@ def fetch_and_build(
     cache_path: str | Path | None = None,
     log: Callable[[str], None] = print,
     progress: Callable[[int, int], None] | None = None,
+    english_translation: str = "NIV",
+    korean_translation: str = "GAE",
 ) -> PipelineResult:
-    """주어진 refs로 NIV+개역개정 조회 후 PPT 생성. (검토 단계 이후 호출용)"""
+    """주어진 refs로 선택한 영문+한글 역본을 조회해 PPT를 생성한다."""
     output_path = Path(output_path)
     template_path = Path(template_path) if template_path else default_template_path()
     cache_path = Path(cache_path) if cache_path else default_cache_path()
@@ -90,6 +97,10 @@ def fetch_and_build(
         raise RuntimeError("성구 인용이 비어 있습니다.")
     if not template_path.exists():
         raise FileNotFoundError(f"템플릿 PPT를 찾을 수 없음: {template_path}")
+    if english_translation not in ENGLISH_TRANSLATIONS:
+        raise ValueError(f"지원하지 않는 영문 역본: {english_translation}")
+    if korean_translation not in KOREAN_TRANSLATIONS:
+        raise ValueError(f"지원하지 않는 한글 역본: {korean_translation}")
 
     has_title = bool((title_en or "").strip() or (title_ko or "").strip())
     main_ref = resolve_main_ref(main_passage, refs) if has_title else None
@@ -105,9 +116,12 @@ def fetch_and_build(
         if progress is not None:
             progress(i - 1, total)
         log(f"[조회 {i}/{total}] {ref.header_en} ...")
-        en = fetcher.get_niv(ref)
-        ko = fetcher.get_korean(ref)
-        log(f"           NIV {len(en)}절 / 개역개정 {len(ko)}절")
+        en = fetcher.get_translation(ref, english_translation)
+        ko = fetcher.get_translation(ref, korean_translation)
+        log(
+            f"           {TRANSLATION_LABELS[english_translation]} {len(en)}절 / "
+            f"{TRANSLATION_LABELS[korean_translation]} {len(ko)}절"
+        )
         passages.append(PassageVerses(ref=ref, en=en, ko=ko))
     if progress is not None:
         progress(total, total)
@@ -135,6 +149,8 @@ def build_ppt(
     cache_path: str | Path | None = None,
     log: Callable[[str], None] = print,
     progress: Callable[[int, int], None] | None = None,
+    english_translation: str = "NIV",
+    korean_translation: str = "GAE",
 ) -> PipelineResult:
     """CLI용 편의함수: 추출 + fetch + 빌드 한번에. (검토 단계 없음)"""
     refs = extract_refs(manuscript_path, log=log)
@@ -150,4 +166,6 @@ def build_ppt(
         cache_path=cache_path,
         log=log,
         progress=progress,
+        english_translation=english_translation,
+        korean_translation=korean_translation,
     )

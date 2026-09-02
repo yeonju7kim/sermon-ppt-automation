@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from bible_books import BOOKS
 from extractor import Reference
+from fetcher import ENGLISH_TRANSLATIONS, KOREAN_TRANSLATIONS
 from service import extract_refs, fetch_and_build, __version__
 
 
@@ -192,13 +193,16 @@ class Worker(QThread):
     failed = pyqtSignal(str)
 
     def __init__(self, refs: list[Reference], output: str,
-                 title_en: str, title_ko: str, main_passage: str):
+                 title_en: str, title_ko: str, main_passage: str,
+                 english_translation: str, korean_translation: str):
         super().__init__()
         self.refs = refs
         self.output = output
         self.title_en = title_en
         self.title_ko = title_ko
         self.main_passage = main_passage
+        self.english_translation = english_translation
+        self.korean_translation = korean_translation
 
     def run(self):
         try:
@@ -208,6 +212,8 @@ class Worker(QThread):
                 title_en=self.title_en or None,
                 title_ko=self.title_ko or None,
                 main_passage=self.main_passage or None,
+                english_translation=self.english_translation,
+                korean_translation=self.korean_translation,
                 log=lambda s: self.log.emit(s),
             )
             self.done.emit(self.output)
@@ -246,9 +252,23 @@ class MainWindow(QWidget):
         self.title_ko.setPlaceholderText("예: 조금씩 하나님에게서 멀어지는 마음")
         self.main_passage = QLineEdit()
         self.main_passage.setPlaceholderText("예: Hebrews 2:1  (생략하면 첫 인용 자동 사용)")
+        self.english_translation = QComboBox()
+        for code, label in ENGLISH_TRANSLATIONS.items():
+            self.english_translation.addItem(label, code)
+        self.english_translation.setCurrentIndex(
+            self.english_translation.findData("NIV")
+        )
+        self.korean_translation = QComboBox()
+        for code, label in KOREAN_TRANSLATIONS.items():
+            self.korean_translation.addItem(f"{label} ({code})", code)
+        self.korean_translation.setCurrentIndex(
+            self.korean_translation.findData("GAE")
+        )
         form.addRow("영문 제목:", self.title_en)
         form.addRow("한글 제목:", self.title_ko)
         form.addRow("타이틀 본문:", self.main_passage)
+        form.addRow("영문 역본:", self.english_translation)
+        form.addRow("한글 역본:", self.korean_translation)
         root.addLayout(form)
 
         self.run_btn = QPushButton("PPT 생성")
@@ -340,6 +360,8 @@ class MainWindow(QWidget):
             title_en=self.title_en.text().strip(),
             title_ko=self.title_ko.text().strip(),
             main_passage=self.main_passage.text().strip(),
+            english_translation=self.english_translation.currentData(),
+            korean_translation=self.korean_translation.currentData(),
         )
         self.worker.log.connect(self._append_log)
         self.worker.done.connect(self._on_done)

@@ -1,4 +1,4 @@
-"""성구 텍스트 조회. NIV(Bible Gateway) + 개역개정(대한성서공회) + SQLite 캐시.
+"""성구 텍스트 조회. 여러 영문/한글 역본 + SQLite 캐시.
 
 저작권: NIV는 Biblica, 개역개정은 대한성서공회 저작권. 본 도구는 사용자의 개인
 설교 준비 용도로 사용자 본인 머신에서 텍스트를 가져와 로컬에 캐시할 뿐, 어떤
@@ -17,6 +17,27 @@ import requests
 from bs4 import BeautifulSoup
 
 from extractor import Reference
+
+
+ENGLISH_TRANSLATIONS = {
+    "ESV": "ESV (English Standard Version)",
+    "NIV": "NIV (New International Version)",
+    "KJV": "KJV (King James Version)",
+    "NASB": "NASB (New American Standard Bible)",
+    "NRSV": "NRSV (New Revised Standard Version)",
+    "NLT": "NLT (New Living Translation)",
+}
+
+KOREAN_TRANSLATIONS = {
+    "GAE": "개역개정",
+    "KRV": "개역한글",
+    "SAENEW": "새번역",
+    "WLB": "우리말성경",
+    "KLB": "현대인의 성경",
+    "EASY": "쉬운성경",
+}
+
+TRANSLATION_LABELS = ENGLISH_TRANSLATIONS | KOREAN_TRANSLATIONS
 
 
 # 대한성서공회 책 코드 (URL용 영문 약어)
@@ -232,6 +253,41 @@ class BsKoreaFetcher:
         return [Verse(n, verses[n]) for n in sorted(verses.keys())]
 
 
+class UnitedBiblesFetcher:
+    """unitedbibles.org의 장별 JSON에서 지정한 역본을 조회한다."""
+
+    BASE_URL = "https://unitedbibles.org/data/chapters"
+    HEADERS = {"User-Agent": "Mozilla/5.0 (sermon-ppt-tool)"}
+    BOOK_SLUGS = {
+        book_en: f"{index:02d}-{re.sub(r'[^a-z0-9]+', '-', book_en.lower()).strip('-')}"
+        for index, (book_en, _code) in enumerate(BSKOREA_BOOK_CODES.items(), 1)
+    }
+
+    def fetch(self, ref: Reference, version: str) -> list[Verse]:
+        if version not in TRANSLATION_LABELS:
+            raise ValueError(f"지원하지 않는 역본: {version}")
+        slug = self.BOOK_SLUGS.get(ref.book_en)
+        if slug is None:
+            raise RuntimeError(f"United Bibles 책 코드 없음: {ref.book_en}")
+        url = f"{self.BASE_URL}/{slug}/{ref.chapter}.json"
+        r = requests.get(url, headers=self.HEADERS, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+
+        verses = {
+            int(number): texts.get(version, "").strip()
+            for number, texts in data.get("v", [])
+            if ref.verse_start <= int(number) <= ref.verse_end
+            and texts.get(version, "").strip()
+        }
+        missing = [n for n in ref.verse_numbers() if n not in verses]
+        if missing:
+            raise RuntimeError(
+                f"United Bibles 누락 절 {missing} ({ref.header_en} {version})"
+            )
+        return [Verse(n, verses[n]) for n in sorted(verses)]
+
+
 # ---------- 통합 fetcher ----------
 
 class CachedFetcher:
@@ -239,10 +295,12 @@ class CachedFetcher:
 
     POLITE_DELAY_SEC = 0.7
 
-    def __init__(self, cache: VerseCache, niv: BibleGatewayFetcher, kor: BsKoreaFetcher):
+    def __init__(self, cache: VerseCache, niv: BibleGatewayFetcher,
+                 kor: BsKoreaFetcher, united: UnitedBiblesFetcher):
         self.cache = cache
         self.niv = niv
         self.kor = kor
+        self.united = united
         self._last_call = 0.0
 
     def _throttle(self):
@@ -256,6 +314,18 @@ class CachedFetcher:
 
     def get_korean(self, ref: Reference) -> list[Verse]:
         return self._get(ref, "GAE", lambda: self.kor.fetch(ref, "GAE"))
+
+    def get_translation(self, ref: Reference, translation: str) -> list[Verse]:
+        """선택한 역본을 조회한다. 기존 기본 역본은 기존 소스를 그대로 사용한다."""
+        if translation == "NIV":
+            return self.get_niv(ref)
+        if translation == "GAE":
+            return self.get_korean(ref)
+        if translation not in TRANSLATION_LABELS:
+            raise ValueError(f"지원하지 않는 역본: {translation}")
+        return self._get(
+            ref, translation, lambda: self.united.fetch(ref, translation)
+        )
 
     def _get(self, ref: Reference, translation: str, fetcher_fn) -> list[Verse]:
         cached = self.cache.get(translation, ref)
@@ -272,4 +342,5 @@ def default_fetcher(cache_path: Path | str = "bible_cache.db") -> CachedFetcher:
         cache=VerseCache(Path(cache_path)),
         niv=BibleGatewayFetcher(),
         kor=BsKoreaFetcher(),
+        united=UnitedBiblesFetcher(),
     )

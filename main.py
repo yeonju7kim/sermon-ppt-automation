@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 
+from fetcher import ENGLISH_TRANSLATIONS, KOREAN_TRANSLATIONS
 from service import build_ppt, default_template_path, default_cache_path, __version__
 
 
@@ -20,6 +21,10 @@ def parse_args():
                    help="타이틀 슬라이드에 표시할 본문 (예: 'Habakkuk 3:17-18'). 생략 시 원고에서 추출된 첫 인용")
     p.add_argument("--cache", default=None,
                    help=f"SQLite 캐시 경로 (기본: {default_cache_path()})")
+    p.add_argument("--english-translation", choices=ENGLISH_TRANSLATIONS,
+                   default="NIV", help="영문 역본 (기본: NIV)")
+    p.add_argument("--korean-translation", choices=KOREAN_TRANSLATIONS,
+                   default="GAE", help="한글 역본 (기본: GAE/개역개정)")
     return p.parse_args()
 
 
@@ -33,6 +38,8 @@ def main():
         title_ko=args.title_ko,
         main_passage=args.main_passage,
         cache_path=args.cache,
+        english_translation=args.english_translation,
+        korean_translation=args.korean_translation,
     )
 
 

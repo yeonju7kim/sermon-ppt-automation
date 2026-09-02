@@ -16,8 +16,8 @@ from fetcher import Verse
 @dataclass
 class PassageVerses:
     ref: Reference
-    en: list[Verse]   # NIV
-    ko: list[Verse]   # 개역개정
+    en: list[Verse]   # 선택한 영문 역본
+    ko: list[Verse]   # 선택한 한글 역본
 
 
 # ---------- 슬라이드 조작 유틸 ----------

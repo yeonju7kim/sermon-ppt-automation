@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 from extractor import Reference, extract_from_file, extract_from_text
 from fetcher import (
@@ -87,6 +87,7 @@ def fetch_and_build(
     progress: Callable[[int, int], None] | None = None,
     english_translation: str = "NIV",
     korean_translation: str = "GAE",
+    translation_pairs: list[tuple[str, str]] | None = None,
 ) -> PipelineResult:
     """주어진 refs로 선택한 영문+한글 역본을 조회해 PPT를 생성한다."""
     output_path = Path(output_path)
@@ -97,10 +98,18 @@ def fetch_and_build(
         raise RuntimeError("성구 인용이 비어 있습니다.")
     if not template_path.exists():
         raise FileNotFoundError(f"템플릿 PPT를 찾을 수 없음: {template_path}")
-    if english_translation not in ENGLISH_TRANSLATIONS:
-        raise ValueError(f"지원하지 않는 영문 역본: {english_translation}")
-    if korean_translation not in KOREAN_TRANSLATIONS:
-        raise ValueError(f"지원하지 않는 한글 역본: {korean_translation}")
+    pairs = (
+        translation_pairs
+        if translation_pairs is not None
+        else [(english_translation, korean_translation) for _ in refs]
+    )
+    if len(pairs) != len(refs):
+        raise ValueError("인용과 역본 선택의 개수가 일치하지 않습니다.")
+    for en_code, ko_code in pairs:
+        if en_code not in ENGLISH_TRANSLATIONS:
+            raise ValueError(f"지원하지 않는 영문 역본: {en_code}")
+        if ko_code not in KOREAN_TRANSLATIONS:
+            raise ValueError(f"지원하지 않는 한글 역본: {ko_code}")
 
     has_title = bool((title_en or "").strip() or (title_ko or "").strip())
     main_ref = resolve_main_ref(main_passage, refs) if has_title else None
@@ -112,15 +121,15 @@ def fetch_and_build(
     fetcher = default_fetcher(cache_path)
     passages: list[PassageVerses] = []
     total = len(refs)
-    for i, ref in enumerate(refs, 1):
+    for i, (ref, (en_code, ko_code)) in enumerate(zip(refs, pairs), 1):
         if progress is not None:
             progress(i - 1, total)
         log(f"[조회 {i}/{total}] {ref.header_en} ...")
-        en = fetcher.get_translation(ref, english_translation)
-        ko = fetcher.get_translation(ref, korean_translation)
+        en = fetcher.get_translation(ref, en_code)
+        ko = fetcher.get_translation(ref, ko_code)
         log(
-            f"           {TRANSLATION_LABELS[english_translation]} {len(en)}절 / "
-            f"{TRANSLATION_LABELS[korean_translation]} {len(ko)}절"
+            f"           {TRANSLATION_LABELS[en_code]} {len(en)}절 / "
+            f"{TRANSLATION_LABELS[ko_code]} {len(ko)}절"
         )
         passages.append(PassageVerses(ref=ref, en=en, ko=ko))
     if progress is not None:

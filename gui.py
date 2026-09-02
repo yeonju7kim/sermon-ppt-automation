@@ -85,19 +85,25 @@ class AddReferenceDialog(QDialog):
 
 
 class ReviewDialog(QDialog):
-    """추출된 인용 리스트 검토 + 수동 추가/삭제/순서 변경."""
+    """추출된 인용과 인용별 역본을 검토한다."""
 
-    def __init__(self, refs: list[Reference], parent=None):
+    def __init__(self, refs: list[Reference], default_english: str = "NIV",
+                 default_korean: str = "GAE", parent=None):
         super().__init__(parent)
         self.setWindowTitle("성구 인용 검토")
         self.resize(620, 500)
         self._refs: list[Reference] = list(refs)
+        self._default_translations = (default_english, default_korean)
+        self._translations: list[tuple[str, str]] = [
+            self._default_translations for _ in self._refs
+        ]
 
         layout = QVBoxLayout(self)
 
         layout.addWidget(QLabel(
             "원고에서 자동 추출된 인용 목록입니다.\n"
-            "누락된 구절은 [추가]로 직접 넣고, [위/아래]로 슬라이드 순서를 맞춘 뒤 [생성]을 눌러주세요."
+            "인용을 선택하면 아래에서 해당 구간의 역본을 바꿀 수 있습니다.\n"
+            "누락된 구절은 [추가]로 직접 넣고, [위/아래]로 슬라이드 순서를 맞춰주세요."
         ))
 
         self.list_widget = QListWidget()
@@ -105,7 +111,25 @@ class ReviewDialog(QDialog):
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.list_widget.setFont(mono)
         self.list_widget.itemDoubleClicked.connect(self._on_edit)
+        self.list_widget.currentRowChanged.connect(self._load_translation_selection)
         layout.addWidget(self.list_widget, 1)
+
+        translation_form = QFormLayout()
+        self.english_translation = QComboBox()
+        for code, label in ENGLISH_TRANSLATIONS.items():
+            self.english_translation.addItem(label, code)
+        self.korean_translation = QComboBox()
+        for code, label in KOREAN_TRANSLATIONS.items():
+            self.korean_translation.addItem(f"{label} ({code})", code)
+        translation_form.addRow("선택 인용 영문 역본:", self.english_translation)
+        translation_form.addRow("선택 인용 한글 역본:", self.korean_translation)
+        layout.addLayout(translation_form)
+        self.english_translation.currentIndexChanged.connect(
+            self._save_translation_selection
+        )
+        self.korean_translation.currentIndexChanged.connect(
+            self._save_translation_selection
+        )
 
         btn_row = QHBoxLayout()
         self.add_btn = QPushButton("추가")
@@ -134,20 +158,65 @@ class ReviewDialog(QDialog):
         layout.addWidget(buttons)
 
         self._refresh()
+        if self._refs:
+            self.list_widget.setCurrentRow(0)
+        else:
+            self._load_translation_selection(-1)
 
     def _refresh(self):
         self.list_widget.clear()
-        for i, r in enumerate(self._refs, 1):
+        for i, (r, (en_code, ko_code)) in enumerate(
+            zip(self._refs, self._translations), 1
+        ):
             n_verses = r.verse_end - r.verse_start + 1
             self.list_widget.addItem(
-                f"{i:2d}. {r.header_en:<24s} |  {r.header_ko:<22s} ({n_verses}절)"
+                f"{i:2d}. {r.header_en:<24s} | {r.header_ko:<22s} "
+                f"[{en_code}/{ko_code}] ({n_verses}절)"
             )
+
+    def _load_translation_selection(self, row: int):
+        enabled = 0 <= row < len(self._translations)
+        self.english_translation.setEnabled(enabled)
+        self.korean_translation.setEnabled(enabled)
+        if not enabled:
+            return
+        en_code, ko_code = self._translations[row]
+        self.english_translation.blockSignals(True)
+        self.korean_translation.blockSignals(True)
+        self.english_translation.setCurrentIndex(
+            self.english_translation.findData(en_code)
+        )
+        self.korean_translation.setCurrentIndex(
+            self.korean_translation.findData(ko_code)
+        )
+        self.english_translation.blockSignals(False)
+        self.korean_translation.blockSignals(False)
+
+    def _save_translation_selection(self, _index: int):
+        row = self.list_widget.currentRow()
+        if not (0 <= row < len(self._translations)):
+            return
+        self._translations[row] = (
+            self.english_translation.currentData(),
+            self.korean_translation.currentData(),
+        )
+        self.list_widget.item(row).setText(self._item_text(row))
+
+    def _item_text(self, row: int) -> str:
+        r = self._refs[row]
+        en_code, ko_code = self._translations[row]
+        n_verses = r.verse_end - r.verse_start + 1
+        return (
+            f"{row + 1:2d}. {r.header_en:<24s} | {r.header_ko:<22s} "
+            f"[{en_code}/{ko_code}] ({n_verses}절)"
+        )
 
     def _on_add(self):
         dlg = AddReferenceDialog(len(self._refs), self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             pos = dlg.position_index()
             self._refs.insert(pos, dlg.reference())
+            self._translations.insert(pos, self._default_translations)
             self._refresh()
             self.list_widget.setCurrentRow(pos)
 
@@ -166,6 +235,7 @@ class ReviewDialog(QDialog):
         if not (0 <= row < len(self._refs)):
             return
         del self._refs[row]
+        del self._translations[row]
         self._refresh()
         # 삭제 후 선택 유지
         new_row = min(row, len(self._refs) - 1)
@@ -178,11 +248,17 @@ class ReviewDialog(QDialog):
         if not (0 <= row < len(self._refs)) or not (0 <= new_row < len(self._refs)):
             return
         self._refs[row], self._refs[new_row] = self._refs[new_row], self._refs[row]
+        self._translations[row], self._translations[new_row] = (
+            self._translations[new_row], self._translations[row]
+        )
         self._refresh()
         self.list_widget.setCurrentRow(new_row)
 
     def references(self) -> list[Reference]:
         return list(self._refs)
+
+    def translation_pairs(self) -> list[tuple[str, str]]:
+        return list(self._translations)
 
 
 # ---------- 백그라운드 워커 ----------
@@ -194,15 +270,14 @@ class Worker(QThread):
 
     def __init__(self, refs: list[Reference], output: str,
                  title_en: str, title_ko: str, main_passage: str,
-                 english_translation: str, korean_translation: str):
+                 translation_pairs: list[tuple[str, str]]):
         super().__init__()
         self.refs = refs
         self.output = output
         self.title_en = title_en
         self.title_ko = title_ko
         self.main_passage = main_passage
-        self.english_translation = english_translation
-        self.korean_translation = korean_translation
+        self.translation_pairs = translation_pairs
 
     def run(self):
         try:
@@ -212,8 +287,7 @@ class Worker(QThread):
                 title_en=self.title_en or None,
                 title_ko=self.title_ko or None,
                 main_passage=self.main_passage or None,
-                english_translation=self.english_translation,
-                korean_translation=self.korean_translation,
+                translation_pairs=self.translation_pairs,
                 log=lambda s: self.log.emit(s),
             )
             self.done.emit(self.output)
@@ -267,8 +341,8 @@ class MainWindow(QWidget):
         form.addRow("영문 제목:", self.title_en)
         form.addRow("한글 제목:", self.title_ko)
         form.addRow("타이틀 본문:", self.main_passage)
-        form.addRow("영문 역본:", self.english_translation)
-        form.addRow("한글 역본:", self.korean_translation)
+        form.addRow("기본 영문 역본:", self.english_translation)
+        form.addRow("기본 한글 역본:", self.korean_translation)
         root.addLayout(form)
 
         self.run_btn = QPushButton("PPT 생성")
@@ -325,13 +399,19 @@ class MainWindow(QWidget):
             )
 
         # 2. 검토 다이얼로그
-        dlg = ReviewDialog(refs, self)
+        dlg = ReviewDialog(
+            refs,
+            default_english=self.english_translation.currentData(),
+            default_korean=self.korean_translation.currentData(),
+            parent=self,
+        )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             self._append_log("[취소] 사용자가 검토 단계에서 취소함")
             self.status.setText("취소됨")
             return
 
         final_refs = dlg.references()
+        translation_pairs = dlg.translation_pairs()
         if not final_refs:
             QMessageBox.warning(self, "인용 없음", "최소 하나의 성구가 필요합니다.")
             return
@@ -351,8 +431,10 @@ class MainWindow(QWidget):
         self.status.setText("처리 중...")
         self._append_log("")
         self._append_log(f"[검토 완료] 최종 {len(final_refs)}개 인용")
-        for r in final_refs:
-            self._append_log(f"  - {r.header_en}  |  {r.header_ko}")
+        for r, (en_code, ko_code) in zip(final_refs, translation_pairs):
+            self._append_log(
+                f"  - {r.header_en} | {r.header_ko} [{en_code}/{ko_code}]"
+            )
 
         self.worker = Worker(
             refs=final_refs,
@@ -360,8 +442,7 @@ class MainWindow(QWidget):
             title_en=self.title_en.text().strip(),
             title_ko=self.title_ko.text().strip(),
             main_passage=self.main_passage.text().strip(),
-            english_translation=self.english_translation.currentData(),
-            korean_translation=self.korean_translation.currentData(),
+            translation_pairs=translation_pairs,
         )
         self.worker.log.connect(self._append_log)
         self.worker.done.connect(self._on_done)
